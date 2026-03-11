@@ -37,7 +37,9 @@ def _normalise_value(v) -> object:
 
 
 def _row_to_dict(obj, extra: dict | None = None) -> dict:
-    row = {f: _normalise_value(getattr(obj, f)) for f in obj.model_fields}
+    # Access model_fields from the class, not the instance —
+    # Pydantic V2.11 deprecates instance-level model_fields access.
+    row = {f: _normalise_value(getattr(obj, f)) for f in obj.__class__.model_fields}
     if extra:
         row.update(extra)
     return row

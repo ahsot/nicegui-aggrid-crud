@@ -132,13 +132,29 @@ def generate_column_defs_from_table(
     # ------------------------------------------------------------------
     # Primary key columns are always immutable
     # ------------------------------------------------------------------
-    # We check field.json_schema_extra (set by SQLModel's Field()) rather
-    # than field.metadata, which may contain PydanticMetadata objects
-    # whose attributes accidentally match "primary_key".
-    for field_name, field in table.model_fields.items():
-        field_info = field.json_schema_extra or {}
-        if field_info.get("primary_key", False):
-            immutable.add(field_name)
+    # Detection strategy (most-to-least reliable):
+    # 1. SQLAlchemy table metadata — most reliable, works when the model
+    #    is fully registered with a database engine.
+    # 2. field.json_schema_extra — set by SQLModel's Field(primary_key=True),
+    #    reliable in older SQLModel versions.
+    # 3. field.metadata — fallback, but PydanticMetadata objects in this
+    #    list can accidentally match "primary_key" on non-PK fields (a known
+    #    bug that was the original motivation for strategy 2).
+    # We try all three so the code works across SQLModel versions.
+    try:
+        # Strategy 1 — SQLAlchemy table inspector
+        sa_table = getattr(table, "__table__", None)
+        if sa_table is not None:
+            for col in sa_table.primary_key.columns:
+                immutable.add(col.name)
+        else:
+            raise AttributeError("no __table__")
+    except (AttributeError, Exception):
+        # Strategy 2 — json_schema_extra (older SQLModel)
+        for field_name, field in table.model_fields.items():
+            field_info = field.json_schema_extra or {}
+            if field_info.get("primary_key", False):
+                immutable.add(field_name)
 
     # ------------------------------------------------------------------
     # One column per model field

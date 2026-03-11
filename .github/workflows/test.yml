@@ -1,0 +1,127 @@
+name: Tests
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    # Run weekly on Monday at 08:00 UTC against the latest NiceGUI release.
+    # This catches breaking changes in new NiceGUI versions before a
+    # community report does.
+    - cron: "0 8 * * 1"
+  workflow_dispatch:
+    # Allow manual trigger from the GitHub Actions UI
+
+jobs:
+  # -------------------------------------------------------------------------
+  # Job 1 — pinned
+  # Runs on every push and PR against the pinned requirements.txt versions.
+  # Fast (~60s). Catches regressions in our own code.
+  # -------------------------------------------------------------------------
+  test-pinned:
+    name: Tests (pinned requirements)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt pytest
+
+      - name: Verify all modules import cleanly
+        run: |
+          python -c "from example.models import Product, ShoppingCart, CartStatus, Category"
+          python -c "from example.components.columns import generate_column_defs_from_table"
+          python -c "from example.components.formatters import cast_row_types, normalise_row"
+          python -c "from example.services import load_product_rows, load_cart_rows, load_order_rows"
+
+      - name: Run tests
+        run: pytest tests/ -v --tb=short
+
+  # -------------------------------------------------------------------------
+  # Job 2 — latest
+  # Runs on the weekly schedule (and manual trigger) against the latest
+  # NiceGUI and SQLModel releases.
+  # Catches breaking changes in upstream packages.
+  # If this job fails but test-pinned passes, a new NiceGUI or SQLModel
+  # version has introduced a breaking change — review the gotchas in README.
+  # -------------------------------------------------------------------------
+  test-latest:
+    name: Tests (latest NiceGUI + SQLModel)
+    runs-on: ubuntu-latest
+    # Only run on schedule or manual trigger — not on every push
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install latest NiceGUI and SQLModel
+        run: pip install nicegui sqlmodel pytest
+
+      - name: Print installed versions
+        run: |
+          python -c "import nicegui; print(f'nicegui=={nicegui.__version__}')"
+          python -c "import sqlmodel; print(f'sqlmodel=={sqlmodel.__version__}')"
+
+      - name: Verify all modules import cleanly
+        run: |
+          python -c "from example.models import Product, ShoppingCart, CartStatus, Category"
+          python -c "from example.components.columns import generate_column_defs_from_table"
+          python -c "from example.components.formatters import cast_row_types, normalise_row"
+          python -c "from example.services import load_product_rows, load_cart_rows, load_order_rows"
+
+      - name: Run tests
+        run: pytest tests/ -v --tb=short
+
+      - name: Open issue if latest tests fail
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'compatibility'
+            });
+            // Avoid duplicate issues — only open one if none already open
+            if (issues.length === 0) {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: '⚠️ Weekly compatibility check failed — NiceGUI or SQLModel update may have breaking changes',
+                body: [
+                  '## Automated compatibility check failed',
+                  '',
+                  `Workflow run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+                  '',
+                  'The weekly test run against the **latest** NiceGUI and SQLModel versions has failed.',
+                  'The pinned requirements.txt versions are unaffected.',
+                  '',
+                  '### Possible causes',
+                  '- A new NiceGUI release has changed a behaviour documented in the README gotchas',
+                  '- A new SQLModel/Pydantic release has changed field introspection behaviour',
+                  '- A new AG Grid version bundled with NiceGUI has changed column def handling',
+                  '',
+                  '### Steps to investigate',
+                  '1. Check the failed workflow run linked above for the specific test failure',
+                  '2. Compare the installed versions printed in the "Print installed versions" step',
+                  '3. Review the relevant gotcha in README.md and update if needed',
+                  '4. Update requirements.txt to the new pinned versions once verified',
+                  '',
+                  '_This issue was opened automatically by the weekly compatibility workflow._',
+                ].join('\n'),
+                labels: ['compatibility']
+              });
+            }

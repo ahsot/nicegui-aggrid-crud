@@ -394,7 +394,7 @@ ui.run_javascript(f"myElement.textContent = {safe_val};")
 ## Requirements
 
 ```
-nicegui>=2.0.0
+nicegui>=3.0.0
 sqlmodel>=0.0.16
 ```
 
