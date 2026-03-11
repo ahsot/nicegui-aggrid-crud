@@ -25,30 +25,10 @@ from example.models import CartStatus, ShoppingCart
 from example.services import (
     checkout_cart,
     delete_cart,
-    get_product_prices_js,
     load_cart_rows,
     load_product_rows,
     submit_cart,
 )
-
-_PRICE_LOOKUP_JS = """
-<script>
-(function() {
-    function attachPriceLookup() {
-        const gridEl = document.querySelector(".ag-root-wrapper");
-        if (!gridEl) { setTimeout(attachPriceLookup, 100); return; }
-        gridEl.addEventListener("click", function() {
-            if (!window.__cartGridApi__) {
-                const api = gridEl.__agGrid?.api || gridEl._agGrid?.api;
-                if (api) window.__cartGridApi__ = api;
-            }
-        }, true);
-    }
-    attachPriceLookup();
-})();
-</script>
-"""
-
 
 class ShoppingCartGrid(CRUDGrid):
 
@@ -62,7 +42,12 @@ class ShoppingCartGrid(CRUDGrid):
         self._detail_label  = detail_label
         self._on_checked_out = on_checked_out
 
-        product_names = [r["product_name"] for r in load_product_rows()]
+        all_products       = load_product_rows()
+        product_names      = [r["product_name"] for r in all_products]
+        # Cache keyed by product_id for O(1) lookup in on_row_selected
+        self._product_map  = {r["product_id"]: r for r in all_products}
+        # Cache keyed by product_name for O(1) lookup in cell value changed
+        self._product_by_name = {r["product_name"]: r for r in all_products}
 
         super().__init__(
             table_model      = ShoppingCart,
@@ -76,7 +61,7 @@ class ShoppingCartGrid(CRUDGrid):
                 "cart_id", "unit_price", "total_value",
                 "status", "added_date", "paid_time",
             },
-            hidden_fields    = {"product_id", "paid_time", "delivered_time"},
+            hidden_fields    = {"product_id", "paid_time"},
             new_row_defaults = {
                 "product_name": "",
                 "quantity":     1,
@@ -84,19 +69,16 @@ class ShoppingCartGrid(CRUDGrid):
                 "total_value":  None,
                 "status":       CartStatus.WISHLIST.value,
                 "added_date":   None,
-                "paid_time":    None,
             },
             header_colour    = "#bbdefb",
             height           = "500px",
-            label_new        = "ADD ITEM",
-            label_upload     = "UPDATE ITEMS",
+            label_new        = "ADD",
+            label_upload     = "SAVE",
             label_delete     = "REMOVE ITEM",
         )
 
     def build(self) -> "ShoppingCartGrid":
         super().build()
-        ui.add_head_html(_PRICE_LOOKUP_JS)
-        ui.run_javascript(get_product_prices_js())
         # Override cellValueChanged for price lookup and auto-commit
         self.grid.on("cellValueChanged", self._on_cart_cell_value_changed)
         return self
@@ -115,8 +97,9 @@ class ShoppingCartGrid(CRUDGrid):
     def on_row_selected(self, row: dict) -> None:
         product_id = row.get("product_id")
         if product_id:
-            products = {r["product_id"]: r for r in load_product_rows()}
-            product  = products.get(product_id, {})
+            # Use cached product map built at construction time
+            # to avoid a DB hit on every row click.
+            product   = self._product_map.get(int(product_id), {})
             image_url = product.get("image_url", "")
             if image_url:
                 self._image_display.set_source(image_url)
@@ -159,8 +142,7 @@ class ShoppingCartGrid(CRUDGrid):
         row = self.grid.options["rowData"][row_index]
 
         if col_id == "product_name":
-            products   = {r["product_name"]: r for r in load_product_rows()}
-            product    = products.get(new_value, {})
+            product    = self._product_by_name.get(new_value, {})
             image_url  = product.get("image_url", "")
             unit_price = product.get("price")
 
@@ -245,9 +227,8 @@ class ShoppingCartGrid(CRUDGrid):
         Checkout the selected WISHLIST item:
         - Auto-saves any dirty rows first so quantity/price are correct
         - Sets status=PAID, paid_time=now in ShoppingCart
-        - Creates an Order record
         - Row disappears from cart view (WISHLIST filter)
-        - Notifies the page to refresh Orders tab
+        - Notifies the Orders tab to refresh
         """
         if self._selected_row_index is None:
             ui.notify("Select a cart item first.", color="warning")

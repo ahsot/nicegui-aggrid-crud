@@ -47,8 +47,13 @@ class OrderGrid(CRUDGrid):
                 "status": [CartStatus.PAID.value, CartStatus.DELIVERED.value],
             },
             immutable_fields = {
-                "cart_id", "product_id", "quantity", "unit_price",
-                "total_value", "paid_time", "delivered_time",
+                "cart_id",
+                "product_id",     # FK reference — display only
+                "quantity",
+                "unit_price",
+                "total_value",
+                "paid_time",      # set server-side on checkout
+                "delivered_time", # set server-side via deliver_order()
             },
             header_colour   = "#f3e5f5",
             height          = "500px",
@@ -147,8 +152,9 @@ class OrderGrid(CRUDGrid):
         if col_id != "status":
             return
 
+        row           = self.grid.options["rowData"][row_index]
+        original_status = row.get("status", CartStatus.PAID.value)  # capture BEFORE overwrite
         self.grid.options["rowData"][row_index][col_id] = new_value
-        row     = self.grid.options["rowData"][row_index]
         cart_id = row.get("cart_id")
 
         if new_value == CartStatus.DELIVERED.value:
@@ -183,9 +189,9 @@ class OrderGrid(CRUDGrid):
                 f"Attempted: {new_value}",
                 color="warning",
             )
-            # Revert
-            original = row.get("status", CartStatus.PAID.value)
-            safe_val = json.dumps(original)
+            # Revert to the status the row had before the user changed it
+            safe_val = json.dumps(original_status)
+            self.grid.options["rowData"][row_index]["status"] = original_status
             ui.run_javascript(f"""
                 (function() {{
                     document.querySelectorAll(
