@@ -1,10 +1,20 @@
-# Python-generated files
-__pycache__/
-*.py[oc]
-build/
-dist/
-wheels/
-*.egg-info
+# Database
+db/*.db
+db/*.sqlite
 
-# Virtual environments
-.venv
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+.env
+*.egg-info/
+dist/
+build/
+
+# uv
+.python-version
+
+# IDE
+.vscode/
+.idea/
