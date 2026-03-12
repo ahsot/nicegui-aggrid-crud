@@ -71,8 +71,14 @@ jobs:
           python -c "from example.components.formatters import cast_row_types, normalise_row"
           python -c "from example.services import load_product_rows, load_cart_rows, load_order_rows"
 
-      - name: Run tests
-        run: pytest tests/ -v --tb=short
+      - name: Install coverage
+        run: pip install coverage pytest
+
+      - name: Run tests with coverage
+        run: coverage run -m pytest tests/ -v --tb=short
+
+      - name: Report coverage
+        run: coverage report -m
 
   # -------------------------------------------------------------------------
   # Job 3 — latest NiceGUI + SQLModel (weekly)

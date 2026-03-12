@@ -1,3 +1,5 @@
+![CI](https://github.com/ahsot/nicegui-aggrid-crud/actions/workflows/test.yml/badge.svg)
+
 # nicegui-aggrid-crud
 
 A reusable CRUD grid component for [NiceGUI](https://nicegui.io/) built on

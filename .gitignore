@@ -12,6 +12,11 @@ __pycache__/
 dist/
 build/
 
+# Coverage reports
+.coverage
+.coverage.*
+htmlcov/
+
 # uv
 .python-version
 
