@@ -60,7 +60,7 @@ from example.components.formatters import cast_row_types, normalise_row  # noqa:
 # Minimal test models — avoids coupling tests to demo domain models
 # ---------------------------------------------------------------------------
 
-class SimpleModel(SQLModel, table=True):
+class SimpleModel(SQLModel, table=True): # type: ignore[call-arg]
     """
     Test model — field names deliberately use _time and _date suffixes
     to match the naming conventions that columns.py detects.
@@ -76,7 +76,7 @@ class SimpleModel(SQLModel, table=True):
     is_active    : bool               = Field(default=True)
 
 
-class FKModel(SQLModel, table=False):
+class FKModel(SQLModel, table=False): # type: ignore[call-arg]
     """Model with a FK to SimpleModel — for UI-only column insertion tests."""
     order_id   : Optional[int] = Field(default=None, primary_key=True)
     item_id    : Optional[int] = Field(default=None)
