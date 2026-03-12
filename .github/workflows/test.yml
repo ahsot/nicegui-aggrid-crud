@@ -6,22 +6,45 @@ on:
   pull_request:
     branches: [ main ]
   schedule:
-    # Run weekly on Monday at 08:00 UTC against the latest NiceGUI release.
-    # This catches breaking changes in new NiceGUI versions before a
-    # community report does.
+    # Weekly Monday 08:00 UTC compatibility check
     - cron: "0 8 * * 1"
   workflow_dispatch:
-    # Allow manual trigger from the GitHub Actions UI
 
 jobs:
+
   # -------------------------------------------------------------------------
-  # Job 1 — pinned
-  # Runs on every push and PR against the pinned requirements.txt versions.
-  # Fast (~60s). Catches regressions in our own code.
+  # Job 1 — lint + type check (fast)
+  # -------------------------------------------------------------------------
+  lint-and-typecheck:
+    name: Lint & Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install tools
+        run: pip install ruff mypy
+
+      - name: Ruff lint
+        run: ruff check .
+
+      - name: Mypy type check (light mode)
+        run: mypy --ignore-missing-imports .
+
+  # -------------------------------------------------------------------------
+  # Job 2 — pinned tests (matrix: Python 3.11, 3.12 + 3.13)
   # -------------------------------------------------------------------------
   test-pinned:
     name: Tests (pinned requirements)
     runs-on: ubuntu-latest
+    needs: lint-and-typecheck
+    strategy:
+      matrix:
+        python-version: [ "3.11", "3.12", "3.13" ]
 
     steps:
       - uses: actions/checkout@v4
@@ -29,7 +52,15 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.13"
+          python-version: ${{ matrix.python-version }}
+
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
 
       - name: Install dependencies
         run: pip install -r requirements.txt pytest
@@ -45,17 +76,11 @@ jobs:
         run: pytest tests/ -v --tb=short
 
   # -------------------------------------------------------------------------
-  # Job 2 — latest
-  # Runs on the weekly schedule (and manual trigger) against the latest
-  # NiceGUI and SQLModel releases.
-  # Catches breaking changes in upstream packages.
-  # If this job fails but test-pinned passes, a new NiceGUI or SQLModel
-  # version has introduced a breaking change — review the gotchas in README.
+  # Job 3 — latest NiceGUI + SQLModel (weekly)
   # -------------------------------------------------------------------------
   test-latest:
     name: Tests (latest NiceGUI + SQLModel)
     runs-on: ubuntu-latest
-    # Only run on schedule or manual trigger — not on every push
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
 
     steps:
@@ -64,7 +89,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.13"
+          python-version: "3.12"
 
       - name: Install latest NiceGUI and SQLModel
         run: pip install nicegui sqlmodel pytest
@@ -95,7 +120,7 @@ jobs:
               state: 'open',
               labels: 'compatibility'
             });
-            // Avoid duplicate issues — only open one if none already open
+
             if (issues.length === 0) {
               await github.rest.issues.create({
                 owner: context.repo.owner,
@@ -110,7 +135,7 @@ jobs:
                   'The pinned requirements.txt versions are unaffected.',
                   '',
                   '### Possible causes',
-                  '- A new NiceGUI release has changed a behaviour documented in the README gotchas',
+                  '- A new NiceGUI release has changed behaviour documented in the README gotchas',
                   '- A new SQLModel/Pydantic release has changed field introspection behaviour',
                   '- A new AG Grid version bundled with NiceGUI has changed column def handling',
                   '',
@@ -120,7 +145,7 @@ jobs:
                   '3. Review the relevant gotcha in README.md and update if needed',
                   '4. Update requirements.txt to the new pinned versions once verified',
                   '',
-                  '_This issue was opened automatically by the weekly compatibility workflow._',
+                  '_This issue was opened automatically by the weekly compatibility workflow._'
                 ].join('\n'),
                 labels: ['compatibility']
               });
