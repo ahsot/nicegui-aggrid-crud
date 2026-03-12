@@ -27,7 +27,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Optional
 
-import pytest
+import pytest # pyright: ignore[reportMissingImports]
 from sqlmodel import Field, SQLModel
 
 # ---------------------------------------------------------------------------
@@ -48,12 +48,12 @@ def _create_test_tables():
     """Create all test model tables once for the session."""
     _SQLModel.metadata.create_all(_test_engine)
 
-from example.components.columns import (
+from example.components.columns import (  # noqa: E402
     _to_header_name,
     _find_insertion_point,
     generate_column_defs_from_table,
 )
-from example.components.formatters import cast_row_types, normalise_row
+from example.components.formatters import cast_row_types, normalise_row  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
