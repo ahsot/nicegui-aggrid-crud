@@ -16,7 +16,7 @@ without waiting for a full grid refresh.
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime
 
 from nicegui import ui
 
