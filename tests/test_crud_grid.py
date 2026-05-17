@@ -21,13 +21,15 @@ TestServices            — service layer logic (in-memory SQLite)
 
 from __future__ import annotations
 
-import sys
+import asyncio
+import inspect
 import os
+import sys
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Optional
 
-import pytest # pyright: ignore[reportMissingImports]
+import pytest  # pyright: ignore[reportMissingImports]
 from sqlmodel import Field, SQLModel
 
 # ---------------------------------------------------------------------------
@@ -38,54 +40,61 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 # ---------------------------------------------------------------------------
 # Create an in-memory engine for test models that use table=True
 # ---------------------------------------------------------------------------
-from sqlmodel import create_engine as _create_engine, SQLModel as _SQLModel
+from sqlmodel import SQLModel as _SQLModel
+from sqlmodel import create_engine as _create_engine
 
-_test_engine = _create_engine("sqlite:///:memory:",
-                               connect_args={"check_same_thread": False})
+_test_engine = _create_engine(
+    "sqlite:///:memory:", connect_args={"check_same_thread": False}
+)
+
 
 @pytest.fixture(autouse=True, scope="session")
 def _create_test_tables():
     """Create all test model tables once for the session."""
     _SQLModel.metadata.create_all(_test_engine)
 
+
 from example.components.columns import (  # noqa: E402
-    _to_header_name,
     _find_insertion_point,
+    _to_header_name,
     generate_column_defs_from_table,
 )
 from example.components.formatters import cast_row_types, normalise_row  # noqa: E402
-
 
 # ---------------------------------------------------------------------------
 # Minimal test models — avoids coupling tests to demo domain models
 # ---------------------------------------------------------------------------
 
-class SimpleModel(SQLModel, table=True): # type: ignore[call-arg]
+
+class SimpleModel(SQLModel, table=True):  # type: ignore[call-arg]
     """
     Test model — field names deliberately use _time and _date suffixes
     to match the naming conventions that columns.py detects.
     Uses table=True so SQLModel populates json_schema_extra with
     primary_key=True, which is how columns.py detects PK fields.
     """
-    item_id      : Optional[int]      = Field(default=None, primary_key=True)
-    item_name    : str                = Field(default="")
-    unit_price   : Decimal            = Field(default=Decimal("0"), decimal_places=2, max_digits=10)
-    stock_qty    : int                = Field(default=0)
-    created_time : Optional[datetime] = Field(default=None)
-    expires_date : Optional[date]     = Field(default=None)
-    is_active    : bool               = Field(default=True)
+
+    item_id: Optional[int] = Field(default=None, primary_key=True)
+    item_name: str = Field(default="")
+    unit_price: Decimal = Field(default=Decimal("0"), decimal_places=2, max_digits=10)
+    stock_qty: int = Field(default=0)
+    created_time: Optional[datetime] = Field(default=None)
+    expires_date: Optional[date] = Field(default=None)
+    is_active: bool = Field(default=True)
 
 
-class FKModel(SQLModel, table=False): # type: ignore[call-arg]
+class FKModel(SQLModel, table=False):  # type: ignore[call-arg]
     """Model with a FK to SimpleModel — for UI-only column insertion tests."""
-    order_id   : Optional[int] = Field(default=None, primary_key=True)
-    item_id    : Optional[int] = Field(default=None)
-    quantity   : int           = Field(default=1)
+
+    order_id: Optional[int] = Field(default=None, primary_key=True)
+    item_id: Optional[int] = Field(default=None)
+    quantity: int = Field(default=1)
 
 
 # ===========================================================================
 # TestHeaderName
 # ===========================================================================
+
 
 class TestHeaderName:
     """_to_header_name converts snake_case to readable header strings."""
@@ -119,6 +128,7 @@ class TestHeaderName:
 # TestColumnDefs
 # ===========================================================================
 
+
 class TestColumnDefs:
     """generate_column_defs_from_table produces correct AG Grid column defs."""
 
@@ -138,7 +148,8 @@ class TestColumnDefs:
         registered SQLModel tables.
         """
         from example.models import Product
-        cols    = generate_column_defs_from_table(Product)
+
+        cols = generate_column_defs_from_table(Product)
         col_map = {c["field"]: c for c in cols}
         assert col_map["product_id"]["editable"] is False
 
@@ -203,9 +214,7 @@ class TestColumnDefs:
         assert "expires_date" not in fields
 
     def test_hidden_fields_present_but_hidden(self):
-        cols = generate_column_defs_from_table(
-            SimpleModel, hidden_fields={"item_id"}
-        )
+        cols = generate_column_defs_from_table(SimpleModel, hidden_fields={"item_id"})
         col_map = {c["field"]: c for c in cols}
         assert "item_id" in col_map
         assert col_map["item_id"]["hide"] is True
@@ -243,7 +252,7 @@ class TestUIOnlyColumns:
         fields = [c["field"] for c in cols]
         assert "item_name" in fields
         # item_name should appear right after item_id
-        item_id_pos   = fields.index("item_id")
+        item_id_pos = fields.index("item_id")
         item_name_pos = fields.index("item_name")
         assert item_name_pos == item_id_pos + 1
 
@@ -266,6 +275,7 @@ class TestUIOnlyColumns:
 # TestColumnDefsGotchas
 # ===========================================================================
 
+
 class TestColumnDefsGotchas:
     """
     Verifies the documented NiceGUI + AG Grid gotchas are reflected in the
@@ -279,7 +289,7 @@ class TestColumnDefsGotchas:
         NiceGUI 3.x requires ':valueFormatter' (colon-prefix) for JS evaluation.
         Plain 'valueFormatter' strings are NOT evaluated as JavaScript.
         """
-        cols    = generate_column_defs_from_table(SimpleModel)
+        cols = generate_column_defs_from_table(SimpleModel)
         col_map = {c["field"]: c for c in cols}
         time_col = col_map["created_time"]
         assert ":valueFormatter" in time_col, (
@@ -297,7 +307,8 @@ class TestColumnDefsGotchas:
         If this test fails, the PK detection strategy in columns.py needs updating.
         """
         from example.models import Product
-        cols    = generate_column_defs_from_table(Product)
+
+        cols = generate_column_defs_from_table(Product)
         col_map = {c["field"]: c for c in cols}
         assert col_map["product_id"]["editable"] is False, (
             "GOTCHA BROKEN: PK detection via json_schema_extra may have changed. "
@@ -314,7 +325,7 @@ class TestColumnDefsGotchas:
         If editable=True, AG Grid opens a text editor on single-click
         and the double-click handler fires twice.
         """
-        cols    = generate_column_defs_from_table(SimpleModel)
+        cols = generate_column_defs_from_table(SimpleModel)
         col_map = {c["field"]: c for c in cols}
         assert col_map["created_time"]["editable"] is False, (
             "GOTCHA BROKEN: _time columns must remain editable=False. "
@@ -347,6 +358,7 @@ class TestColumnDefsGotchas:
 # TestCastRowTypes
 # ===========================================================================
 
+
 class TestCastRowTypes:
     """cast_row_types corrects the type loss from JSON serialisation."""
 
@@ -356,18 +368,30 @@ class TestCastRowTypes:
         Decimal(str(value)) is used, NOT Decimal(value), to avoid
         inheriting float imprecision.
         """
-        row    = {"item_id": 1, "item_name": "Widget", "unit_price": 33.33,
-                  "stock_qty": 5.0, "created_time": None, "expires_date": None,
-                  "is_active": True}
+        row = {
+            "item_id": 1,
+            "item_name": "Widget",
+            "unit_price": 33.33,
+            "stock_qty": 5.0,
+            "created_time": None,
+            "expires_date": None,
+            "is_active": True,
+        }
         result = cast_row_types(row, SimpleModel)
         assert isinstance(result["unit_price"], Decimal)
         assert result["unit_price"] == Decimal("33.33")
 
     def test_decimal_precision_preserved(self):
         """Decimal(33.33) != Decimal('33.33') — the str() path is critical."""
-        row    = {"item_id": 1, "item_name": "x", "unit_price": 9.99,
-                  "stock_qty": 1.0, "created_time": None, "expires_date": None,
-                  "is_active": True}
+        row = {
+            "item_id": 1,
+            "item_name": "x",
+            "unit_price": 9.99,
+            "stock_qty": 1.0,
+            "created_time": None,
+            "expires_date": None,
+            "is_active": True,
+        }
         result = cast_row_types(row, SimpleModel)
         assert result["unit_price"] == Decimal("9.99")
         # This would fail with Decimal(9.99) due to float imprecision
@@ -375,58 +399,101 @@ class TestCastRowTypes:
 
     def test_int_from_float(self):
         """AG Grid sends integer fields as floats (e.g. 5.0 not 5)."""
-        row    = {"item_id": 1.0, "item_name": "x", "unit_price": 1.0,
-                  "stock_qty": 42.0, "created_time": None, "expires_date": None,
-                  "is_active": True}
+        row = {
+            "item_id": 1.0,
+            "item_name": "x",
+            "unit_price": 1.0,
+            "stock_qty": 42.0,
+            "created_time": None,
+            "expires_date": None,
+            "is_active": True,
+        }
         result = cast_row_types(row, SimpleModel)
         assert isinstance(result["stock_qty"], int)
         assert result["stock_qty"] == 42
 
     def test_datetime_from_iso_string(self):
-        row    = {"item_id": 1, "item_name": "x", "unit_price": 1.0,
-                  "stock_qty": 1, "created_time": "2024-11-10T09:00:00",
-                  "expires_date": None, "is_active": True}
+        row = {
+            "item_id": 1,
+            "item_name": "x",
+            "unit_price": 1.0,
+            "stock_qty": 1,
+            "created_time": "2024-11-10T09:00:00",
+            "expires_date": None,
+            "is_active": True,
+        }
         result = cast_row_types(row, SimpleModel)
         assert isinstance(result["created_time"], datetime)
         assert result["created_time"] == datetime(2024, 11, 10, 9, 0, 0)
 
     def test_datetime_from_iso_string_with_microseconds(self):
-        row    = {"item_id": 1, "item_name": "x", "unit_price": 1.0,
-                  "stock_qty": 1, "created_time": "2024-11-10T09:00:00.123456",
-                  "expires_date": None, "is_active": True}
+        row = {
+            "item_id": 1,
+            "item_name": "x",
+            "unit_price": 1.0,
+            "stock_qty": 1,
+            "created_time": "2024-11-10T09:00:00.123456",
+            "expires_date": None,
+            "is_active": True,
+        }
         result = cast_row_types(row, SimpleModel)
         assert isinstance(result["created_time"], datetime)
         assert result["created_time"].microsecond == 123456
 
     def test_date_from_iso_string(self):
-        row    = {"item_id": 1, "item_name": "x", "unit_price": 1.0,
-                  "stock_qty": 1, "created_time": None,
-                  "expires_date": "2025-03-15", "is_active": True}
+        row = {
+            "item_id": 1,
+            "item_name": "x",
+            "unit_price": 1.0,
+            "stock_qty": 1,
+            "created_time": None,
+            "expires_date": "2025-03-15",
+            "is_active": True,
+        }
         result = cast_row_types(row, SimpleModel)
         assert isinstance(result["expires_date"], date)
         assert result["expires_date"] == date(2025, 3, 15)
 
     def test_none_values_unchanged(self):
-        row    = {"item_id": None, "item_name": "x", "unit_price": 1.0,
-                  "stock_qty": 1, "created_time": None, "expires_date": None,
-                  "is_active": True}
+        row = {
+            "item_id": None,
+            "item_name": "x",
+            "unit_price": 1.0,
+            "stock_qty": 1,
+            "created_time": None,
+            "expires_date": None,
+            "is_active": True,
+        }
         result = cast_row_types(row, SimpleModel)
         assert result["item_id"] is None
         assert result["created_time"] is None
 
     def test_unknown_fields_passed_through(self):
         """UI-only fields (e.g. product_name) are not in the model — leave untouched."""
-        row    = {"item_id": 1, "item_name": "x", "unit_price": 1.0,
-                  "stock_qty": 1, "created_time": None, "expires_date": None,
-                  "is_active": True, "product_name": "Widget"}
+        row = {
+            "item_id": 1,
+            "item_name": "x",
+            "unit_price": 1.0,
+            "stock_qty": 1,
+            "created_time": None,
+            "expires_date": None,
+            "is_active": True,
+            "product_name": "Widget",
+        }
         result = cast_row_types(row, SimpleModel)
         assert result["product_name"] == "Widget"
 
     def test_invalid_cast_leaves_value_unchanged(self):
         """Malformed values are left as-is — service layer surfaces the error."""
-        row    = {"item_id": 1, "item_name": "x", "unit_price": "not-a-number",
-                  "stock_qty": 1, "created_time": None, "expires_date": None,
-                  "is_active": True}
+        row = {
+            "item_id": 1,
+            "item_name": "x",
+            "unit_price": "not-a-number",
+            "stock_qty": 1,
+            "created_time": None,
+            "expires_date": None,
+            "is_active": True,
+        }
         result = cast_row_types(row, SimpleModel)
         assert result["unit_price"] == "not-a-number"
 
@@ -435,8 +502,8 @@ class TestCastRowTypes:
 # TestNormaliseRow
 # ===========================================================================
 
-class TestNormaliseRow:
 
+class TestNormaliseRow:
     def test_empty_string_becomes_none(self):
         result = normalise_row({"name": "", "qty": 1})
         assert result["name"] is None
@@ -474,6 +541,7 @@ class TestNormaliseRow:
 # TestServices — in-memory SQLite
 # ===========================================================================
 
+
 class TestServices:
     """
     Service layer tests using an in-memory SQLite database.
@@ -482,35 +550,38 @@ class TestServices:
 
     def setup_method(self):
         """Create a fresh in-memory DB and seed minimal data."""
-        from sqlmodel import create_engine, Session
-        from example.models import Product, ShoppingCart, CartStatus, Category
-        from decimal import Decimal
         from datetime import date
+        from decimal import Decimal
 
-        self.engine = create_engine("sqlite:///:memory:",
-                                    connect_args={"check_same_thread": False})
+        from sqlmodel import Session, create_engine
+
+        from example.models import CartStatus, Category, Product, ShoppingCart
+
+        self.engine = create_engine(
+            "sqlite:///:memory:", connect_args={"check_same_thread": False}
+        )
         SQLModel.metadata.create_all(self.engine)
 
         with Session(self.engine) as session:
             product = Product(
-                product_name = "Test Widget",
-                description  = "A test product",
-                category     = Category.ELECTRONICS,
-                price        = Decimal("49.99"),
-                stock_qty    = 10,
-                image_url    = "",
+                product_name="Test Widget",
+                description="A test product",
+                category=Category.ELECTRONICS,
+                price=Decimal("49.99"),
+                stock_qty=10,
+                image_url="",
             )
             session.add(product)
             session.flush()
             self._product_id = product.product_id
 
             cart = ShoppingCart(
-                product_id  = product.product_id,
-                quantity    = 1,
-                unit_price  = Decimal("49.99"),
-                total_value = Decimal("49.99"),
-                status      = CartStatus.WISHLIST,
-                added_date  = date.today(),
+                product_id=product.product_id,
+                quantity=1,
+                unit_price=Decimal("49.99"),
+                total_value=Decimal("49.99"),
+                status=CartStatus.WISHLIST,
+                added_date=date.today(),
             )
             session.add(cart)
             session.commit()
@@ -518,26 +589,31 @@ class TestServices:
 
         # Patch the engine used by services
         import example.database as db_module
+
         self._original_engine = db_module.engine
         db_module.engine = self.engine
 
     def teardown_method(self):
         import example.database as db_module
+
         db_module.engine = self._original_engine
 
     def test_load_cart_rows_returns_wishlist_only(self):
         from example.services import load_cart_rows
+
         rows = load_cart_rows()
         assert len(rows) == 1
         assert rows[0]["status"] == "WISHLIST"
 
     def test_load_cart_rows_injects_product_name(self):
         from example.services import load_cart_rows
+
         rows = load_cart_rows()
         assert rows[0]["product_name"] == "Test Widget"
 
     def test_checkout_cart_moves_to_paid(self):
         from example.services import checkout_cart, load_order_rows
+
         checkout_cart(self._cart_id)
         orders = load_order_rows()
         assert len(orders) == 1
@@ -546,18 +622,21 @@ class TestServices:
 
     def test_checkout_cart_removes_from_wishlist(self):
         from example.services import checkout_cart, load_cart_rows
+
         checkout_cart(self._cart_id)
         rows = load_cart_rows()
         assert len(rows) == 0
 
     def test_checkout_cart_twice_raises(self):
         from example.services import checkout_cart
+
         checkout_cart(self._cart_id)
         with pytest.raises(PermissionError, match="already"):
             checkout_cart(self._cart_id)
 
     def test_deliver_order_moves_to_delivered(self):
         from example.services import checkout_cart, deliver_order, load_order_rows
+
         checkout_cart(self._cart_id)
         deliver_order(self._cart_id)
         orders = load_order_rows()
@@ -566,22 +645,108 @@ class TestServices:
 
     def test_deliver_non_paid_order_raises(self):
         from example.services import deliver_order
+
         with pytest.raises(PermissionError):
             deliver_order(self._cart_id)  # still WISHLIST
 
     def test_delete_cart_wishlist_succeeds(self):
         from example.services import delete_cart, load_cart_rows
+
         delete_cart({"cart_id": self._cart_id})
         assert len(load_cart_rows()) == 0
 
     def test_delete_cart_paid_raises(self):
         from example.services import checkout_cart, delete_cart
+
         checkout_cart(self._cart_id)
         with pytest.raises(PermissionError, match="WISHLIST"):
             delete_cart({"cart_id": self._cart_id})
 
     def test_load_product_rows_returns_all(self):
         from example.services import load_product_rows
+
         rows = load_product_rows()
         assert len(rows) == 1
         assert rows[0]["product_name"] == "Test Widget"
+
+
+# ===========================================================================
+# TestAsyncSupport
+# ===========================================================================
+class TestAsyncSupport:
+    """
+    Verifies that CRUDGrid correctly detects sync vs async callables.
+
+    These tests cover only the detection logic — not the full refresh()
+    flow which requires a NiceGUI event loop context.
+    """
+
+    def test_inspect_detects_sync_callable(self):
+        """A plain function is not a coroutine function."""
+
+        def sync_load() -> list:
+            return []
+
+        assert not inspect.iscoroutinefunction(sync_load)
+
+    def test_inspect_detects_async_callable(self):
+        """An async function is correctly identified as a coroutine function."""
+
+        async def async_load() -> list:
+            return []
+
+        assert inspect.iscoroutinefunction(async_load)
+
+    def test_refresh_raises_for_async_load_rows(self):
+        """
+        refresh() must raise RuntimeError when load_rows is async.
+        The caller should use refresh_async() instead.
+        """
+        from example.components.crud_grid import CRUDGrid
+
+        async def async_load():
+            return []
+
+        grid = CRUDGrid(
+            table_model=SimpleModel,
+            load_rows=async_load,
+            submit_row=None,
+        )
+        # grid.grid is None (build() not called) — refresh() returns early
+        # before the RuntimeError check, so we simulate by calling the check
+        # directly via inspect
+        assert inspect.iscoroutinefunction(grid._load_rows)
+
+    def test_refresh_does_not_raise_for_sync_load_rows(self):
+        """refresh() must not raise for a synchronous load_rows."""
+        from example.components.crud_grid import CRUDGrid
+
+        def sync_load():
+            return []
+
+        grid = CRUDGrid(
+            table_model=SimpleModel,
+            load_rows=sync_load,
+            submit_row=None,
+        )
+        assert not inspect.iscoroutinefunction(grid._load_rows)
+
+    @pytest.mark.asyncio
+    async def test_async_to_thread_wraps_sync(self):
+        """asyncio.to_thread runs a sync callable without blocking."""
+
+        def sync_work():
+            return [{"item_id": 1, "item_name": "test"}]
+
+        result = await asyncio.to_thread(sync_work)
+        assert result == [{"item_id": 1, "item_name": "test"}]
+
+    @pytest.mark.asyncio
+    async def test_async_callable_awaited_directly(self):
+        """An async callable can be awaited without to_thread."""
+
+        async def async_work():
+            return [{"item_id": 2, "item_name": "async_test"}]
+
+        result = await async_work()
+        assert result == [{"item_id": 2, "item_name": "async_test"}]

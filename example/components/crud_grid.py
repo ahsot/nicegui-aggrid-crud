@@ -68,6 +68,8 @@ significant debugging time — documented here for the community.
 
 from __future__ import annotations
 
+import asyncio
+import inspect
 import json
 import uuid
 from typing import TYPE_CHECKING, Any, Callable
@@ -303,10 +305,37 @@ function clearDirtyKeys_{self._dirty_js_name}() {{
 
         return self
 
+    # def refresh(self) -> None:
+    #     """Reload data from source and reset all dirty state."""
+    #     if self.grid is None:
+    #         return
+    #     self.grid.options["rowData"] = self._load_rows()
+    #     self.grid.update()
+    #     self._dirty_rows.clear()
+    #     self._selected_row_index = None
+    #     ui.run_javascript(f"clearDirtyKeys_{self._dirty_js_name}()")
+    #     self.grid.run_grid_method("refreshCells", {"force": True})
+
     def refresh(self) -> None:
-        """Reload data from source and reset all dirty state."""
+        """
+        Reload data synchronously and reset all dirty state.
+
+        Safe to call from synchronous contexts (button callbacks,
+        non-async event handlers).  If ``load_rows`` is a coroutine
+        function, use ``await grid.refresh_async()`` instead.
+
+        .. note::
+            If called from an async NiceGUI event handler with a
+            coroutine ``load_rows``, this will raise a RuntimeError.
+            Use ``refresh_async()`` in that case.
+        """
         if self.grid is None:
             return
+        if inspect.iscoroutinefunction(self._load_rows):
+            raise RuntimeError(
+                "load_rows is a coroutine function — use "
+                "await grid.refresh_async() instead of grid.refresh()."
+            )
         self.grid.options["rowData"] = self._load_rows()
         self.grid.update()
         self._dirty_rows.clear()
@@ -314,7 +343,37 @@ function clearDirtyKeys_{self._dirty_js_name}() {{
         ui.run_javascript(f"clearDirtyKeys_{self._dirty_js_name}()")
         self.grid.run_grid_method("refreshCells", {"force": True})
 
-    def upload_all(self) -> None:
+    async def refresh_async(self) -> None:
+        """
+        Reload data asynchronously and reset all dirty state.
+
+        Supports both sync and async ``load_rows`` callables:
+
+        - If ``load_rows`` is a coroutine function, it is awaited directly.
+        - If ``load_rows`` is a regular function, it is run in a thread via
+          ``asyncio.to_thread()`` so it cannot block the NiceGUI event loop.
+
+        Usage inside a ``@ui.page`` async handler::
+
+            @ui.page('/holdings')
+            async def holdings_page():
+                grid = CRUDGrid(load_rows=fetch_from_db, ...).build()
+                ui.button('Refresh', on_click=grid.refresh_async)
+        """
+        if self.grid is None:
+            return
+        if inspect.iscoroutinefunction(self._load_rows):
+            rows = await self._load_rows()
+        else:
+            rows = await asyncio.to_thread(self._load_rows)
+        self.grid.options["rowData"] = rows
+        self.grid.update()
+        self._dirty_rows.clear()
+        self._selected_row_index = None
+        ui.run_javascript(f"clearDirtyKeys_{self._dirty_js_name}()")
+        self.grid.run_grid_method("refreshCells", {"force": True})
+
+    async def upload_all(self) -> None:
         """
         Submit every dirty row.  PermissionErrors are caught per-row so
         one blocked row does not prevent others from being saved.
@@ -327,12 +386,27 @@ function clearDirtyKeys_{self._dirty_js_name}() {{
             return
 
         success, skipped = 0, 0
+        # for row_index in sorted(self._dirty_rows):
+        #     row = dict(self.grid.options["rowData"][row_index])
+        #     row = cast_row_types(row, self._table_model)
+        #     row = self._pre_submit_hook(row)
+        #     try:
+        #         self._submit_row_fn(row)
+        #         success += 1
+        #     except PermissionError as exc:
+        #         ui.notify(str(exc), color="orange")
+        #         skipped += 1
+
+        assert self.grid is not None
         for row_index in sorted(self._dirty_rows):
             row = dict(self.grid.options["rowData"][row_index])
             row = cast_row_types(row, self._table_model)
             row = self._pre_submit_hook(row)
             try:
-                self._submit_row_fn(row)
+                if inspect.iscoroutinefunction(self._submit_row_fn):
+                    await self._submit_row_fn(row)
+                else:
+                    await asyncio.to_thread(self._submit_row_fn, row)
                 success += 1
             except PermissionError as exc:
                 ui.notify(str(exc), color="orange")
@@ -347,6 +421,7 @@ function clearDirtyKeys_{self._dirty_js_name}() {{
     def add_new_row(self, defaults: dict | None = None) -> None:
         """Insert a blank row at the top of the grid."""
         row = {**self._new_row_defaults, **(defaults or {})}
+        assert self.grid is not None
         self.grid.options["rowData"].insert(0, row)
         self.grid.update()
         # Re-index existing dirty rows displaced by the insertion
@@ -359,6 +434,7 @@ function clearDirtyKeys_{self._dirty_js_name}() {{
         if self._selected_row_index is None:
             ui.notify("Select a row first.", color="warning")
             return
+        assert self.grid is not None
         row = dict(self.grid.options["rowData"][self._selected_row_index])
         row = cast_row_types(row, self._table_model)
         try:
@@ -402,7 +478,7 @@ function clearDirtyKeys_{self._dirty_js_name}() {{
                 ui.button(
                     self._label_upload,
                     icon="upload",
-                    on_click=lambda: self.upload_all(),
+                    on_click=self.upload_all,
                 )
             if self._delete_row_fn is not None and self._label_delete is not None:
                 ui.button(
