@@ -69,12 +69,15 @@ significant debugging time — documented here for the community.
 from __future__ import annotations
 
 import uuid
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 from nicegui import ui
 
 from .columns import generate_column_defs_from_table
 from .formatters import cast_row_types
+
+if TYPE_CHECKING:
+    from .grid_policy import GridDesignPolicy
 
 # ---------------------------------------------------------------------------
 # CSS
@@ -152,7 +155,7 @@ class CRUDGrid:
         label_upload: str = "UPLOAD",
         label_delete: str = "DELETE",
     ):
-        from .grid_policy import GridDesignPolicy as _GDP
+        from .grid_policy import GridDesignPolicy
 
         self._table_model = table_model
         self._load_rows = load_rows
@@ -164,7 +167,7 @@ class CRUDGrid:
         self._hidden_fields = hidden_fields or set()
         self._immutable_fields = immutable_fields or set()
         self._new_row_defaults = new_row_defaults or {}
-        self._design = design if design is not None else _GDP()
+        self._design = design if design is not None else GridDesignPolicy()
         # self._header_colour    = header_colour
         # self._height           = height
 
