@@ -20,6 +20,7 @@ import json
 from nicegui import ui
 
 from example.components.crud_grid import CRUDGrid
+from example.components.grid_policy import GridDesignPolicy
 from example.models import CartStatus, ShoppingCart
 from example.services import (
     checkout_cart,
@@ -29,51 +30,54 @@ from example.services import (
     submit_cart,
 )
 
-class ShoppingCartGrid(CRUDGrid):
 
+class ShoppingCartGrid(CRUDGrid):
     def __init__(
         self,
         image_display: ui.image,
-        detail_label:  ui.label,
+        detail_label: ui.label,
         on_checked_out=None,
     ):
         self._image_display = image_display
-        self._detail_label  = detail_label
+        self._detail_label = detail_label
         self._on_checked_out = on_checked_out
 
-        all_products       = load_product_rows()
-        product_names      = [r["product_name"] for r in all_products]
+        all_products = load_product_rows()
+        product_names = [r["product_name"] for r in all_products]
         # Cache keyed by product_id for O(1) lookup in on_row_selected
-        self._product_map  = {r["product_id"]: r for r in all_products}
+        self._product_map = {r["product_id"]: r for r in all_products}
         # Cache keyed by product_name for O(1) lookup in cell value changed
         self._product_by_name = {r["product_name"]: r for r in all_products}
 
         super().__init__(
-            table_model      = ShoppingCart,
-            load_rows        = load_cart_rows,
-            submit_row       = submit_cart,
-            delete_row       = delete_cart,
-            dropdown_map     = {
+            table_model=ShoppingCart,
+            load_rows=load_cart_rows,
+            submit_row=submit_cart,
+            delete_row=delete_cart,
+            dropdown_map={
                 "product_name": product_names,
             },
-            immutable_fields = {
-                "cart_id", "unit_price", "total_value",
-                "status", "added_date", "paid_time",
+            immutable_fields={
+                "cart_id",
+                "unit_price",
+                "total_value",
+                "status",
+                "added_date",
+                "paid_time",
             },
-            hidden_fields    = {"product_id", "paid_time"},
-            new_row_defaults = {
+            hidden_fields={"product_id", "paid_time"},
+            new_row_defaults={
                 "product_name": "",
-                "quantity":     1,
-                "unit_price":   None,
-                "total_value":  None,
-                "status":       CartStatus.WISHLIST.value,
-                "added_date":   None,
+                "quantity": 1,
+                "unit_price": None,
+                "total_value": None,
+                "status": CartStatus.WISHLIST.value,
+                "added_date": None,
             },
-            header_colour    = "#bbdefb",
-            height           = "500px",
-            label_new        = "ADD",
-            label_upload     = "SAVE",
-            label_delete     = "REMOVE ITEM",
+            design=GridDesignPolicy(header_colour="#bbdefb", height="500px"),
+            label_new="ADD",
+            label_upload="SAVE",
+            label_delete="REMOVE ITEM",
         )
 
     def build(self) -> "ShoppingCartGrid":
@@ -98,16 +102,16 @@ class ShoppingCartGrid(CRUDGrid):
         if product_id:
             # Use cached product map built at construction time
             # to avoid a DB hit on every row click.
-            product   = self._product_map.get(int(product_id), {})
+            product = self._product_map.get(int(product_id), {})
             image_url = product.get("image_url", "")
             if image_url:
                 self._image_display.set_source(image_url)
 
         product_name = row.get("product_name", "—")
-        quantity     = row.get("quantity", "")
-        unit_price   = row.get("unit_price", "")
-        total_value  = row.get("total_value", "")
-        status       = row.get("status", "")
+        quantity = row.get("quantity", "")
+        unit_price = row.get("unit_price", "")
+        total_value = row.get("total_value", "")
+        status = row.get("status", "")
 
         self._detail_label.set_text(
             f"{product_name}  |  Qty: {quantity}  "
@@ -131,9 +135,9 @@ class ShoppingCartGrid(CRUDGrid):
         Always use json.dumps() when injecting Python strings into JS —
         product names may contain quotes (e.g. 4K Smart TV 55").
         """
-        args      = e.args
+        args = e.args
         row_index = int(args["rowIndex"])
-        col_id    = args["colId"]
+        col_id = args["colId"]
         new_value = args.get("newValue")
 
         self.grid.options["rowData"][row_index][col_id] = new_value
@@ -141,8 +145,8 @@ class ShoppingCartGrid(CRUDGrid):
         row = self.grid.options["rowData"][row_index]
 
         if col_id == "product_name":
-            product    = self._product_by_name.get(new_value, {})
-            image_url  = product.get("image_url", "")
+            product = self._product_by_name.get(new_value, {})
+            image_url = product.get("image_url", "")
             unit_price = product.get("price")
 
             # Update product_id in rowData immediately so on_row_selected
@@ -152,12 +156,14 @@ class ShoppingCartGrid(CRUDGrid):
 
             if unit_price is not None:
                 row["unit_price"] = unit_price
-                quantity    = int(row.get("quantity") or 1)
+                quantity = int(row.get("quantity") or 1)
                 total_value = round(float(unit_price) * quantity, 2)
                 row["total_value"] = total_value
 
-                for fld, val in [("unit_price", unit_price),
-                                  ("total_value", total_value)]:
+                for fld, val in [
+                    ("unit_price", unit_price),
+                    ("total_value", total_value),
+                ]:
                     safe_val = json.dumps(str(val))
                     ui.run_javascript(f"""
                         (function() {{
@@ -180,6 +186,7 @@ class ShoppingCartGrid(CRUDGrid):
             is_new_row = not row.get("cart_id")
             if is_new_row and unit_price is not None:
                 from example.components.formatters import cast_row_types
+
                 save_row = cast_row_types(dict(row), self._table_model)
                 save_row = self._pre_submit_hook(save_row)
                 try:
@@ -233,7 +240,7 @@ class ShoppingCartGrid(CRUDGrid):
             ui.notify("Select a cart item first.", color="warning")
             return
 
-        row    = dict(self.grid.options["rowData"][self._selected_row_index])
+        row = dict(self.grid.options["rowData"][self._selected_row_index])
         status = row.get("status", "")
 
         if status != CartStatus.WISHLIST.value:
@@ -257,9 +264,7 @@ class ShoppingCartGrid(CRUDGrid):
             # we need to re-read cart_id from the refreshed data.
             # Find the row with matching cart_id after refresh.
             rows = self.grid.options.get("rowData", [])
-            match = next(
-                (r for r in rows if r.get("cart_id") == cart_id), None
-            )
+            match = next((r for r in rows if r.get("cart_id") == cart_id), None)
             if match is None:
                 # Row was blocked by PermissionError — abort checkout
                 return

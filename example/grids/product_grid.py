@@ -8,26 +8,29 @@ from __future__ import annotations
 from nicegui import ui
 
 from example.components.crud_grid import CRUDGrid
+from example.components.grid_policy import GridDesignPolicy
 from example.models import Product
 from example.services import load_product_rows
 
 
 class ProductGrid(CRUDGrid):
-
-    def __init__(self, image_display: ui.image, detail_label: ui.label,
-                 detail_description: ui.label):
-        self._image_display     = image_display
-        self._detail_label      = detail_label
+    def __init__(
+        self,
+        image_display: ui.image,
+        detail_label: ui.label,
+        detail_description: ui.label,
+    ):
+        self._image_display = image_display
+        self._detail_label = detail_label
         self._detail_description = detail_description
 
         super().__init__(
-            table_model   = Product,
-            load_rows     = load_product_rows,
-            submit_row    = None,
-            delete_row    = None,
-            hidden_fields = {"image_url"},
-            header_colour = "#c8e6c9",
-            height        = "500px",
+            table_model=Product,
+            load_rows=load_product_rows,
+            submit_row=None,
+            delete_row=None,
+            hidden_fields={"image_url"},
+            design=GridDesignPolicy(header_colour="#c8e6c9", height="500px"),
         )
 
     def select_by_product_id(self, product_id: int) -> None:
@@ -38,7 +41,7 @@ class ProductGrid(CRUDGrid):
         may deliver it as a string.
         """
         target = int(product_id)
-        rows   = self.grid.options.get("rowData", [])
+        rows = self.grid.options.get("rowData", [])
         for i, row in enumerate(rows):
             if int(row.get("product_id") or 0) == target:
                 self._selected_row_index = i

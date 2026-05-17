@@ -21,48 +21,47 @@ from datetime import datetime
 from nicegui import ui
 
 from example.components.crud_grid import CRUDGrid
+from example.components.grid_policy import GridDesignPolicy
 from example.models import CartStatus, ShoppingCart
 from example.services import deliver_order, load_order_rows, submit_order
 
 
 class OrderGrid(CRUDGrid):
-
     def __init__(
         self,
-        product_label:       ui.label,
+        product_label: ui.label,
         on_navigate_product=None,
     ):
-        self._product_label      = product_label
+        self._product_label = product_label
         self._on_navigate_product = on_navigate_product  # callable(product_id)
 
         super().__init__(
-            table_model     = ShoppingCart,
-            load_rows       = load_order_rows,
-            submit_row      = submit_order,
-            delete_row      = None,
-            hidden_fields   = {"added_date"},
-            label_new       = None,
-            label_upload    = None,
-            dropdown_map    = {
+            table_model=ShoppingCart,
+            load_rows=load_order_rows,
+            submit_row=submit_order,
+            delete_row=None,
+            hidden_fields={"added_date"},
+            label_new=None,
+            label_upload=None,
+            dropdown_map={
                 "status": [CartStatus.PAID.value, CartStatus.DELIVERED.value],
             },
-            immutable_fields = {
+            immutable_fields={
                 "cart_id",
-                "product_id",     # FK reference — display only
+                "product_id",  # FK reference — display only
                 "quantity",
                 "unit_price",
                 "total_value",
-                "paid_time",      # set server-side on checkout
-                "delivered_time", # set server-side via deliver_order()
+                "paid_time",  # set server-side on checkout
+                "delivered_time",  # set server-side via deliver_order()
             },
-            header_colour   = "#f3e5f5",
-            height          = "500px",
+            design=GridDesignPolicy(header_colour="#ffe0b2", height="500px"),
         )
 
     def build(self) -> "OrderGrid":
         super().build()
         self.grid.on("cellDoubleClicked", self._on_order_double_clicked)
-        self.grid.on("cellValueChanged",  self._on_order_cell_value_changed)
+        self.grid.on("cellValueChanged", self._on_order_cell_value_changed)
         return self
 
     # ------------------------------------------------------------------
@@ -86,13 +85,13 @@ class OrderGrid(CRUDGrid):
         Demonstrates: intentional double-click action with immediate
         DOM update — no SAVE button required for a single-field event.
         """
-        args      = e.args
+        args = e.args
         row_index = int(args["rowIndex"])
-        col_id    = args["colId"]
+        col_id = args["colId"]
 
         # Cross-tab navigation — double-click product_id goes to Products tab
         if col_id == "product_id":
-            row        = self.grid.options["rowData"][row_index]
+            row = self.grid.options["rowData"][row_index]
             product_id = row.get("product_id")
             if product_id and self._on_navigate_product:
                 self._on_navigate_product(product_id)
@@ -101,7 +100,7 @@ class OrderGrid(CRUDGrid):
         if col_id != "delivered_time":
             return
 
-        row    = self.grid.options["rowData"][row_index]
+        row = self.grid.options["rowData"][row_index]
         status = row.get("status", "")
 
         if status != CartStatus.PAID.value:
@@ -144,16 +143,18 @@ class OrderGrid(CRUDGrid):
         register this via grid.on() rather than a {"function": "..."}
         in the column definition.
         """
-        args      = e.args
+        args = e.args
         row_index = int(args["rowIndex"])
-        col_id    = args["colId"]
+        col_id = args["colId"]
         new_value = args.get("newValue")
 
         if col_id != "status":
             return
 
-        row           = self.grid.options["rowData"][row_index]
-        original_status = row.get("status", CartStatus.PAID.value)  # capture BEFORE overwrite
+        row = self.grid.options["rowData"][row_index]
+        original_status = row.get(
+            "status", CartStatus.PAID.value
+        )  # capture BEFORE overwrite
         self.grid.options["rowData"][row_index][col_id] = new_value
         cart_id = row.get("cart_id")
 
@@ -176,7 +177,9 @@ class OrderGrid(CRUDGrid):
                         }});
                     }})();
                 """)
-                self.grid.options["rowData"][row_index]["status"] = CartStatus.PAID.value
+                self.grid.options["rowData"][row_index]["status"] = (
+                    CartStatus.PAID.value
+                )
                 self.grid.update()
                 return
 
@@ -185,8 +188,7 @@ class OrderGrid(CRUDGrid):
             self.refresh()
         else:
             ui.notify(
-                f"Only PAID → DELIVERED is permitted. "
-                f"Attempted: {new_value}",
+                f"Only PAID → DELIVERED is permitted. Attempted: {new_value}",
                 color="warning",
             )
             # Revert to the status the row had before the user changed it
