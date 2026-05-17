@@ -68,6 +68,7 @@ significant debugging time — documented here for the community.
 
 from __future__ import annotations
 
+import json
 import uuid
 from typing import TYPE_CHECKING, Any, Callable
 
@@ -513,6 +514,7 @@ function clearDirtyKeys_{self._dirty_js_name}() {{
 
         # Write directly to the DOM cell — AG Grid's own row model update
         # path is not accessible without a reliable handle to params.api.
+        safe_value = json.dumps(str(new_value))
         ui.run_javascript(f"""
             (function() {{
                 const rows = document.querySelectorAll(
@@ -522,7 +524,7 @@ function clearDirtyKeys_{self._dirty_js_name}() {{
                     const cell = row.querySelector('[col-id="{col_id}"]');
                     if (cell) {{
                         const val = cell.querySelector('.ag-cell-value');
-                        if (val) val.textContent = '{new_value}';
+                        if (val) val.textContent = {safe_value};
                     }}
                 }});
             }})();
