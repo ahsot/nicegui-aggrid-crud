@@ -69,24 +69,22 @@ significant debugging time — documented here for the community.
 from __future__ import annotations
 
 import uuid
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 from nicegui import ui
 
 from .columns import generate_column_defs_from_table
 from .formatters import cast_row_types
 
+if TYPE_CHECKING:
+    from .grid_policy import GridDesignPolicy
 
 # ---------------------------------------------------------------------------
 # CSS
 # ---------------------------------------------------------------------------
-
-_GRID_CSS = """
-.edited-cell {
-    background-color: #fff3cd !important;
-    border-left: 3px solid #ffca2c !important;
-}
-"""
+# ---------------------------------------------------------------------------
+# CSS — generated per-instance from GridDesignPolicy, not hardcoded here
+# ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
 # JS — dirty cell tracking
@@ -99,6 +97,7 @@ _GRID_CSS = """
 # ---------------------------------------------------------------------------
 # CRUDGrid
 # ---------------------------------------------------------------------------
+
 
 class CRUDGrid:
     """
@@ -142,48 +141,50 @@ class CRUDGrid:
     def __init__(
         self,
         table_model,
-        load_rows:        Callable[[], list[dict]],
-        submit_row:       Callable[[dict], Any] | None,
-        delete_row:       Callable[[dict], Any] | None = None,
-        pre_submit_hook:  Callable[[dict], dict] | None = None,
-        dropdown_map:     dict | None = None,
-        excluded_fields:  set | None = None,
-        hidden_fields:    set | None = None,
+        load_rows: Callable[[], list[dict]],
+        submit_row: Callable[[dict], Any] | None,
+        delete_row: Callable[[dict], Any] | None = None,
+        pre_submit_hook: Callable[[dict], dict] | None = None,
+        dropdown_map: dict | None = None,
+        excluded_fields: set | None = None,
+        hidden_fields: set | None = None,
         immutable_fields: set | None = None,
         new_row_defaults: dict | None = None,
-        header_colour:    str = "#d6d6d6",
-        height:           str = "600px",
-        label_new:        str = "NEW",
-        label_upload:     str = "UPLOAD",
-        label_delete:     str = "DELETE",
+        design: "GridDesignPolicy | None" = None,
+        label_new: str = "NEW",
+        label_upload: str = "UPLOAD",
+        label_delete: str = "DELETE",
     ):
-        self._table_model      = table_model
-        self._load_rows        = load_rows
-        self._submit_row_fn    = submit_row  # None = read-only grid
-        self._delete_row_fn    = delete_row
-        self._pre_submit_hook  = pre_submit_hook or (lambda row: row)
-        self._dropdown_map     = dropdown_map or {}
-        self._excluded_fields  = excluded_fields or set()
-        self._hidden_fields    = hidden_fields or set()
+        from .grid_policy import GridDesignPolicy
+
+        self._table_model = table_model
+        self._load_rows = load_rows
+        self._submit_row_fn = submit_row  # None = read-only grid
+        self._delete_row_fn = delete_row
+        self._pre_submit_hook = pre_submit_hook or (lambda row: row)
+        self._dropdown_map = dropdown_map or {}
+        self._excluded_fields = excluded_fields or set()
+        self._hidden_fields = hidden_fields or set()
         self._immutable_fields = immutable_fields or set()
         self._new_row_defaults = new_row_defaults or {}
-        self._header_colour    = header_colour
-        self._height           = height
+        self._design = design if design is not None else GridDesignPolicy()
+        # self._header_colour    = header_colour
+        # self._height           = height
 
-        self._label_new        = label_new
-        self._label_upload     = label_upload
-        self._label_delete     = label_delete
+        self._label_new = label_new
+        self._label_upload = label_upload
+        self._label_delete = label_delete
 
-        self._dirty_rows:       set[int] = set()
+        self._dirty_rows: set[int] = set()
         self._selected_row_index: int | None = None
-        self._autofitted:       bool = False
+        self._autofitted: bool = False
         # Unique identifiers per instance:
         # _grid_class  — scopes CSS header colour
         # _dirty_js_name — scopes the JS dirty-key Set so grids on the
         #   same page don't share highlight state (window.__dirtykeys__
         #   is global — each grid needs its own named Set)
         _uid = uuid.uuid4().hex[:8]
-        self._grid_class:    str = f"crud-grid-{_uid}"
+        self._grid_class: str = f"crud-grid-{_uid}"
         self._dirty_js_name: str = f"__dirtykeys_{_uid}__"
 
         self.grid: ui.aggrid | None = None
@@ -193,9 +194,30 @@ class CRUDGrid:
     # ------------------------------------------------------------------
 
     def build(self) -> "CRUDGrid":
-        """Render the toolbar and grid into the current NiceGUI container."""
-        ui.add_css(_GRID_CSS)
-        # Per-instance dirty tracking — scoped to this grid's unique name
+        """Render the toolbar and grid into the current NiceGUI container.
+
+        .. warning::
+            Always instantiate CRUDGrid inside a ``@ui.page`` function,
+            never at module level.  Module-level instances are shared across
+            all users (NiceGUI runs as a single process) which means
+            ``_dirty_rows``, ``_selected_row_index`` and grid state would
+            bleed between sessions.
+        """
+        d = self._design
+
+        # ------------------------------------------------------------------
+        # CSS — generated from GridDesignPolicy, not hardcoded
+        # ------------------------------------------------------------------
+        ui.add_css(f"""
+            .edited-cell {{
+                background-color: {d.dirty_cell_bg} !important;
+                border-left: 3px solid {d.dirty_cell_border} !important;
+            }}
+        """)
+
+        # Per-instance dirty tracking — scoped to this grid's unique JS name
+        # so multiple grids on the same page do not share highlight state.
+        # (Gotcha #8: window.__dirtykeys__ bleeds across grids if global)
         _dirty_js = f"""
 <script>
 window["{self._dirty_js_name}"] = window["{self._dirty_js_name}"] || new Set();
@@ -208,16 +230,19 @@ function clearDirtyKeys_{self._dirty_js_name}() {{
 </script>
 """
         ui.add_head_html(_dirty_js)
-        # Scoped to this instance's unique class — prevents the last
-        # grid's header colour overriding all others on the page.
+
+        # Scoped to this instance's unique class so multiple grids on the
+        # same page each get their own header colour without overriding each
+        # other.  Both light and dark balham themes are targeted so the policy
+        # works regardless of which theme the host app chooses.
         ui.add_css(f"""
-            .ag-theme-balham {{
-                --ag-font-size: 12px;
-                --ag-row-height: 26px;
-                --ag-header-height: 32px;
+            .ag-theme-balham, .ag-theme-balham-dark {{
+                --ag-font-size: {d.font_size};
+                --ag-row-height: {d.row_height};
+                --ag-header-height: {d.header_height};
             }}
             .{self._grid_class} {{
-                --ag-header-background-color: {self._header_colour};
+                --ag-header-background-color: {d.header_colour};
             }}
         """)
 
@@ -225,48 +250,54 @@ function clearDirtyKeys_{self._dirty_js_name}() {{
 
         column_defs = generate_column_defs_from_table(
             self._table_model,
-            immutable_fields = self._immutable_fields,
-            excluded_fields  = self._excluded_fields,
-            hidden_fields    = self._hidden_fields,
-            dropdown_map     = self._dropdown_map,
+            immutable_fields=self._immutable_fields,
+            excluded_fields=self._excluded_fields,
+            hidden_fields=self._hidden_fields,
+            dropdown_map=self._dropdown_map,
         )
         self._inject_dirty_class_rules(column_defs)
 
         self.grid = (
-            ui.aggrid({
-                "columnDefs":    column_defs,
-                "rowData":       self._load_rows(),
-                "defaultColDef": {"filter": False, "sortable": True},
-                "columnTypes": {
-                    "dateColumn": {"sortable": True},
-                },
-                "rowSelection": {
-                    "mode": "singleRow",
-                    "enableSelectionWithoutKeys": True,
-                    "checkboxes": False,
-                },
-                "singleClickEdit":              True,
-                "stopEditingWhenCellsLoseFocus": True,
-                "autoSizeStrategy": {
-                    "type": "fitCellContents",
-                },
-                # Capture params.api on first cell edit so we have a
-                # reference to the AG Grid API for direct row model updates.
-                "onCellValueChanged": {
-                    "function": "if(!window.__gridApi__) window.__gridApi__ = params.api"
-                },
-            })
-            .classes(f"ag-theme-balham {self._grid_class}")
-            .style(f"height: {self._height};")
+            ui.aggrid(
+                {
+                    "columnDefs": column_defs,
+                    "rowData": self._load_rows(),
+                    "defaultColDef": {"filter": False, "sortable": True},
+                    "columnTypes": {
+                        "dateColumn": {"sortable": True},
+                    },
+                    "rowSelection": {
+                        "mode": "singleRow",
+                        "enableSelectionWithoutKeys": True,
+                        "checkboxes": False,
+                    },
+                    "singleClickEdit": True,
+                    "stopEditingWhenCellsLoseFocus": True,
+                    "autoSizeStrategy": {
+                        "type": "fitCellContents",
+                    },
+                    # Capture params.api on first cell edit so we have a
+                    # reference to the AG Grid API for direct row model updates.
+                    # (Gotcha #1: onCellValueChanged is intercepted by NiceGUI —
+                    # this {"function": ...} form works only at gridOptions top
+                    # level, not inside column defs)
+                    "onCellValueChanged": {
+                        "function": "if(!window.__gridApi__) window.__gridApi__ = params.api"
+                    },
+                }
+            )
+            .classes(f"{d.ag_theme} {self._grid_class}")
+            .style(f"height: {d.height};")
         )
 
-        self.grid.on("cellValueChanged",  self._on_cell_value_changed)
+        self.grid.on("cellValueChanged", self._on_cell_value_changed)
         self.grid.on("cellDoubleClicked", self._on_cell_double_clicked)
         self.grid.on("firstDataRendered", self._on_first_data_rendered)
         # cellClicked avoids the circular JSON serialisation error that
         # rowClicked causes — AG Grid's full event object contains internal
         # references (context, beans) that cannot be serialised to JSON.
         # We read only rowIndex from args and look up the row in Python.
+        # (Gotcha #5: rowClicked causes circular JSON serialisation error)
         self.grid.on("cellClicked", self._on_cell_clicked)
 
         return self
@@ -281,7 +312,6 @@ function clearDirtyKeys_{self._dirty_js_name}() {{
         self._selected_row_index = None
         ui.run_javascript(f"clearDirtyKeys_{self._dirty_js_name}()")
         self.grid.run_grid_method("refreshCells", {"force": True})
-
 
     def upload_all(self) -> None:
         """
@@ -364,13 +394,21 @@ function clearDirtyKeys_{self._dirty_js_name}() {{
         with ui.row().classes("w-full items-center gap-2 pb-2"):
             ui.button("REFRESH", icon="refresh", on_click=lambda: self.refresh())
             if self._submit_row_fn is not None and self._label_new is not None:
-                ui.button(self._label_new,    icon="add",    on_click=lambda: self.add_new_row())
+                ui.button(
+                    self._label_new, icon="add", on_click=lambda: self.add_new_row()
+                )
             if self._submit_row_fn is not None and self._label_upload is not None:
-                ui.button(self._label_upload, icon="upload", on_click=lambda: self.upload_all())
+                ui.button(
+                    self._label_upload,
+                    icon="upload",
+                    on_click=lambda: self.upload_all(),
+                )
             if self._delete_row_fn is not None and self._label_delete is not None:
-                ui.button(self._label_delete, icon="delete",
-                          on_click=lambda: self.delete_selected_row()
-                          ).props("color=negative")
+                ui.button(
+                    self._label_delete,
+                    icon="delete",
+                    on_click=lambda: self.delete_selected_row(),
+                ).props(f"color={self._design.btn_delete_colour}")
             self.extra_toolbar_buttons()
 
     # ------------------------------------------------------------------
@@ -392,9 +430,9 @@ function clearDirtyKeys_{self._dirty_js_name}() {{
             f"window['{js_name}'].has(node.rowIndex + ':' + column.colId)"
         )
         for col in column_defs:
-            field          = col.get("field", "")
-            is_editable    = col.get("editable", False)
-            is_dblclick    = field.endswith("_time") or field.endswith("_date")
+            field = col.get("field", "")
+            is_editable = col.get("editable", False)
+            is_dblclick = field.endswith("_time") or field.endswith("_date")
             if is_editable or is_dblclick:
                 col.setdefault("cellClassRules", {})
                 col["cellClassRules"]["edited-cell"] = expression
@@ -428,9 +466,9 @@ function clearDirtyKeys_{self._dirty_js_name}() {{
         self.on_row_selected(row)
 
     def _on_cell_value_changed(self, e) -> None:
-        args      = e.args
+        args = e.args
         row_index = int(args["rowIndex"])
-        col_id    = args["colId"]
+        col_id = args["colId"]
         new_value = args.get("newValue")
 
         self.grid.options["rowData"][row_index][col_id] = new_value
@@ -455,9 +493,9 @@ function clearDirtyKeys_{self._dirty_js_name}() {{
         """
         from datetime import date, datetime, timezone
 
-        args      = e.args
+        args = e.args
         row_index = int(args["rowIndex"])
-        col_id    = args["colId"]
+        col_id = args["colId"]
 
         if col_id.endswith("_time"):
             new_value = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
