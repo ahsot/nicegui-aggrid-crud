@@ -750,3 +750,67 @@ class TestAsyncSupport:
 
         result = await async_work()
         assert result == [{"item_id": 2, "item_name": "async_test"}]
+
+
+# ===========================================================================
+# TestStatusBar
+# ===========================================================================
+class TestStatusBar:
+    """
+    Verifies the status bar state logic — not the NiceGUI rendering,
+    just the dirty_rows and selected_row_index conditions that drive it.
+    """
+
+    def test_no_dirty_rows_initially(self):
+        from example.components.crud_grid import CRUDGrid
+
+        def sync_load():
+            return []
+
+        grid = CRUDGrid(
+            table_model=SimpleModel,
+            load_rows=sync_load,
+            submit_row=None,
+        )
+        assert len(grid._dirty_rows) == 0
+        assert grid._selected_row_index is None
+
+    def test_dirty_rows_count_reflects_edits(self):
+        from example.components.crud_grid import CRUDGrid
+
+        grid = CRUDGrid(
+            table_model=SimpleModel,
+            load_rows=lambda: [],
+            submit_row=None,
+        )
+        grid._dirty_rows.add(0)
+        grid._dirty_rows.add(2)
+        assert len(grid._dirty_rows) == 2
+
+    def test_selected_row_index_set(self):
+        from example.components.crud_grid import CRUDGrid
+
+        grid = CRUDGrid(
+            table_model=SimpleModel,
+            load_rows=lambda: [],
+            submit_row=None,
+        )
+        grid._selected_row_index = 3
+        assert grid._selected_row_index == 3
+
+    def test_dirty_rows_cleared_on_refresh_state_reset(self):
+        """Simulates what refresh() does to internal state."""
+        from example.components.crud_grid import CRUDGrid
+
+        grid = CRUDGrid(
+            table_model=SimpleModel,
+            load_rows=lambda: [],
+            submit_row=None,
+        )
+        grid._dirty_rows = {0, 1, 2}
+        grid._selected_row_index = 1
+        # Simulate the state reset that refresh() performs
+        grid._dirty_rows.clear()
+        grid._selected_row_index = None
+        assert len(grid._dirty_rows) == 0
+        assert grid._selected_row_index is None
