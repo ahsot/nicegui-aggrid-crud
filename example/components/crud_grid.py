@@ -249,6 +249,7 @@ function clearDirtyKeys_{self._dirty_js_name}() {{
             }}
         """)
 
+        self._build_status_bar()  # type: ignore
         self._build_toolbar()
 
         column_defs = generate_column_defs_from_table(
@@ -342,6 +343,7 @@ function clearDirtyKeys_{self._dirty_js_name}() {{
         self._selected_row_index = None
         ui.run_javascript(f"clearDirtyKeys_{self._dirty_js_name}()")
         self.grid.run_grid_method("refreshCells", {"force": True})
+        self._build_status_bar.refresh()
 
     async def refresh_async(self) -> None:
         """
@@ -372,6 +374,7 @@ function clearDirtyKeys_{self._dirty_js_name}() {{
         self._selected_row_index = None
         ui.run_javascript(f"clearDirtyKeys_{self._dirty_js_name}()")
         self.grid.run_grid_method("refreshCells", {"force": True})
+        self._build_status_bar.refresh()
 
     async def upload_all(self) -> None:
         """
@@ -466,6 +469,29 @@ function clearDirtyKeys_{self._dirty_js_name}() {{
     # ------------------------------------------------------------------
     # Private — toolbar
     # ------------------------------------------------------------------
+    @ui.refreshable
+    def _build_status_bar(self) -> None:
+        """
+        A small reactive status bar rendered above the toolbar showing
+        dirty row count and selected row.
+
+        Uses @ui.refreshable so only this subtree is rebuilt when state
+        changes — the grid itself is never touched.
+        Called by _on_cell_value_changed and _on_cell_clicked.
+        """
+        with ui.row().classes("w-full items-center gap-3 pb-1"):
+            if self._dirty_rows:
+                ui.badge(
+                    f"{len(self._dirty_rows)} unsaved",
+                    color="warning",
+                ).tooltip("Upload to save changes")
+            if self._selected_row_index is not None:
+                ui.badge(
+                    f"Row {self._selected_row_index + 1} selected",
+                    color="info",
+                )
+            if not self._dirty_rows and self._selected_row_index is None:
+                ui.label("").classes("text-xs")  # empty placeholder keeps layout stable
 
     def _build_toolbar(self) -> None:
         with ui.row().classes("w-full items-center gap-2 pb-2"):
@@ -541,6 +567,7 @@ function clearDirtyKeys_{self._dirty_js_name}() {{
         # as it may contain circular references from AG Grid internals.
         row = self.grid.options["rowData"][self._selected_row_index]
         self.on_row_selected(row)
+        self._build_status_bar.refresh()
 
     def _on_cell_value_changed(self, e) -> None:
         args = e.args
@@ -557,6 +584,7 @@ function clearDirtyKeys_{self._dirty_js_name}() {{
         )
         self.grid.update()
         self.grid.run_grid_method("refreshCells", {"force": True})
+        self._build_status_bar.refresh()
 
     def _on_cell_double_clicked(self, e) -> None:
         """
