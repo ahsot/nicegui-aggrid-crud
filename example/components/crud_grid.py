@@ -249,7 +249,7 @@ function clearDirtyKeys_{self._dirty_js_name}() {{
             }}
         """)
 
-        self._build_status_bar()  # type: ignore
+        self._build_status_bar()  # type: ignore[call-arg]
         self._build_toolbar()
 
         column_defs = generate_column_defs_from_table(
