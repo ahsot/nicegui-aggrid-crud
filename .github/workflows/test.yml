@@ -23,7 +23,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.13"
+          python-version: "3.14"
 
       - name: Install tools
         run: pip install ruff mypy
@@ -35,7 +35,7 @@ jobs:
         run: mypy --ignore-missing-imports .
 
   # -------------------------------------------------------------------------
-  # Job 2 — pinned tests (matrix: Python 3.11, 3.12, 3.13)
+  # Job 2 — pinned tests (matrix: Python 3.12, 3.13, 3.14)
   # -------------------------------------------------------------------------
   test-pinned:
     name: Tests (pinned requirements)
@@ -43,7 +43,7 @@ jobs:
     needs: lint-and-typecheck
     strategy:
       matrix:
-        python-version: [ "3.11", "3.12", "3.13" ]
+        python-version: [ "3.12", "3.13", "3.14" ]
 
     steps:
       - uses: actions/checkout@v4
@@ -94,7 +94,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.13"
+          python-version: "3.14"
 
       - name: Install latest NiceGUI and SQLModel
         run: pip install nicegui sqlmodel pytest
