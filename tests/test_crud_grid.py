@@ -553,9 +553,8 @@ class TestServices:
         from datetime import date
         from decimal import Decimal
 
-        from sqlmodel import Session, create_engine
-
         from example.models import CartStatus, Category, Product, ShoppingCart
+        from sqlmodel import Session, create_engine
 
         self.engine = create_engine(
             "sqlite:///:memory:", connect_args={"check_same_thread": False}

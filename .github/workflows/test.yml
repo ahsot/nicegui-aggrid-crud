@@ -83,6 +83,8 @@ jobs:
 
       - name: Run tests with coverage
         run: coverage run -m pytest tests/ -v --tb=short
+        env:
+          CI: "true"
 
       - name: Report coverage
         run: coverage report -m
@@ -120,6 +122,8 @@ jobs:
 
       - name: Run tests
         run: pytest tests/ -v --tb=short
+        env:
+          CI: "true"
 
       - name: Open issue if latest tests fail
         if: failure()
